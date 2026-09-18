@@ -1,0 +1,56 @@
+name: macOS compatibility check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/macos-compatibility.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-macos:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Download published Mac package
+        run: |
+          curl --fail --location --retry 3 \
+            --output package.zip \
+            https://github.com/u10617020/universal-download-king/releases/download/v24.2/UniversalDownloadKing-Mac-v24.2.zip
+          ditto -x -k package.zip unpacked
+          cd unpacked/UniversalDownloadKing-Mac-v24.2
+          test -x Start-Mac.command
+          bash -n Start-Mac.command
+          ! find . -iname '*.exe' -print | grep .
+
+      - name: Install Python with Tk
+        run: |
+          brew install python@3.12 python-tk@3.12
+          "$(brew --prefix python@3.12)/bin/python3.12" -m venv "$RUNNER_TEMP/udk-venv"
+          "$RUNNER_TEMP/udk-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/udk-venv/bin/python" -m pip install -r unpacked/UniversalDownloadKing-Mac-v24.2/requirements.txt
+
+      - name: Verify imports, Tk, fonts and FFmpeg
+        working-directory: unpacked/UniversalDownloadKing-Mac-v24.2
+        run: |
+          "$RUNNER_TEMP/udk-venv/bin/python" -m compileall -q .
+          "$RUNNER_TEMP/udk-venv/bin/python" - <<'PY'
+          import tkinter as tk
+          import imageio_ffmpeg
+          import subprocess
+          root = tk.Tk()
+          root.withdraw()
+          import app
+          import merge_ui
+          import merge_video
+          assert app.APP_VERSION == "24.2"
+          subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-version"], check=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          application = app.DownloaderApp(root)
+          root.update_idletasks()
+          assert len(application.notebook.tabs()) == 3
+          application._on_close()
+          print("PASS: macOS Tk GUI initialized, assets loaded, three pages built, FFmpeg available")
+          PY
