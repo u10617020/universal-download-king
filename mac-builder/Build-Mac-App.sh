@@ -39,5 +39,7 @@ codesign --verify --deep --strict --verbose=2 'dist/全能下載王.app'
 
 printf '\n建置完成：%s/dist/全能下載王.app\n' "$PWD"
 printf '這是本機私人使用版本，未經 Apple 公證，不適合轉傳到其他 Mac。\n'
-open dist
+if [[ "${CI:-}" != "true" ]]; then
+  open dist
+fi
 
