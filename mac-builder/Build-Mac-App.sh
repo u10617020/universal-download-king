@@ -42,4 +42,3 @@ printf '這是本機私人使用版本，未經 Apple 公證，不適合轉傳�
 if [[ "${CI:-}" != "true" ]]; then
   open dist
 fi
-
