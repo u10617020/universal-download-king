@@ -1,0 +1,66 @@
+name: macOS local app build check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/macos-local-app-build.yml"
+      - "mac-builder/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-launch:
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - name: Checkout builder files
+        uses: actions/checkout@v4
+
+      - name: Install Python with Tk
+        run: |
+          brew install python@3.12 python-tk@3.12
+          echo "$(brew --prefix python@3.12)/libexec/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix python@3.12)/bin" >> "$GITHUB_PATH"
+
+      - name: Download v24.2 source package
+        run: |
+          curl --fail --location --retry 3             --output mac-source.zip             "https://github.com/u10617020/universal-download-king/releases/download/v24.2/UniversalDownloadKing-Mac-v24.2.zip"
+          ditto -x -k mac-source.zip mac-source
+          cp mac-builder/Build-Mac-App.sh mac-source/UniversalDownloadKing-Mac-v24.2/
+          cp mac-builder/Mac-App.spec mac-source/UniversalDownloadKing-Mac-v24.2/
+          chmod +x mac-source/UniversalDownloadKing-Mac-v24.2/Build-Mac-App.sh
+
+      - name: Build locally signed app
+        working-directory: mac-source/UniversalDownloadKing-Mac-v24.2
+        env:
+          CI: "true"
+        run: |
+          bash -n Build-Mac-App.sh
+          bash Build-Mac-App.sh
+
+      - name: Verify signature and launch
+        working-directory: mac-source/UniversalDownloadKing-Mac-v24.2
+        run: |
+          APP="$PWD/dist/全能下載王.app"
+          EXEC="$APP/Contents/MacOS/全能下載王"
+          test -d "$APP"
+          test -x "$EXEC"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = "tw.junjiann.universal-download-king"
+
+          "$EXEC" > app-launch.log 2>&1 &
+          app_pid=$!
+          sleep 8
+          if ! kill -0 "$app_pid" 2>/dev/null; then
+            cat app-launch.log
+            exit 1
+          fi
+          kill "$app_pid"
+          wait "$app_pid" || true
+          if grep -E "Traceback|Fatal Python error" app-launch.log; then
+            cat app-launch.log
+            exit 1
+          fi
+          echo "PASS: local .app built, signature verified, and GUI process launched"
